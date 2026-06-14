@@ -35,6 +35,19 @@ The flow for one decoding step:
 
 For each sentence, `find_missing_tokens` compares the reference translation against the baseline output and returns an n-gram that is missing — preferring **3-grams**, falling back to **2-grams**, then **1-grams**, and `None` if nothing is missing. `constrained_beam_search` then decodes while *forcing* that n-gram into the sequence, so the constraint is guaranteed to appear. This is repeated over four iterations, accumulating constraints per sentence.
 
+### Why Lexically constrained decoding matters (real-world uses)
+
+Here the constraints are mined automatically from reference translations, but the same machinery accepts *any* user-supplied vocabulary. The value of an algorithm that can **force terms in — or, by inverting the logic, keep terms out** — shows up wherever a translation cannot be left to the model's discretion:
+
+- **Domain jargon & specialized terminology** — Fields where a term has one correct rendering and a "fluent" paraphrase changes the meaning. Two high-stakes cases:
+  - *Legal* — Contracts, statutes, and patents rely on terms of art ("force majeure", "indemnify", "without prejudice"). Constrained decoding pins those exact phrases so the model can't soften them into a **colloquial** (everyday) paraphrase that carries a different legal meaning.
+  - *Medical & pharmaceutical* — Drug names, dosages, anatomical terms, and ICD codes must come through verbatim; a paraphrase of a dosage is a safety incident.
+- **Named entities** — Names of people, places, and organizations that the model would otherwise mistranslate or transliterate inconsistently across a document.
+- **Brand & product consistency** — Trademarks, product names, slogans, and UI strings that must stay identical (or untranslated) across every locale — useful for localization pipelines and style-guide enforcement.
+- **Terminology / glossary compliance** — Enterprises and standards bodies maintain approved bilingual glossaries; forcing the sanctioned target term keeps output consistent across documents and translators.
+- **Content safety / negative constraints** — The inverse use: *blocking* slurs, profanity, competitor names, or leaked internal codenames from ever appearing in the output by banning those token sequences.
+- **Interactive / human-in-the-loop translation** — A post-editor who corrects one word can feed it back as a constraint and have the system re-decode the rest of the sentence around that fixed choice, instead of editing by hand.
+
 ## Results
 
 Validation split of WMT16 EN→RU, scored with `sacrebleu`:
