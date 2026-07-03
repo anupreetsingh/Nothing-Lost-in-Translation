@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 540" role="img" aria-labelledby="title desc">
+  <title id="title">Grid Beam Search search graph</title>
+  <desc id="desc">A grid showing decoding time steps on the horizontal axis and constraint coverage on the vertical axis. Each rectangle is a beam set containing up to k candidate hypotheses. Horizontal arrows represent ordinary generation, while dashed diagonal arrows represent starting or continuing a lexical constraint.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/>
+    </marker>
+    <marker id="dashArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+    </marker>
+    <style>
+      .axis { stroke: #111827; stroke-width: 2; marker-end: url(#arrow); }
+      .axis-label { fill: #111827; font: 700 22px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .tick-label { fill: #111827; font: 600 16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .box { fill: #ffffff; stroke: #111827; stroke-width: 3; rx: 4; }
+      .inactive { fill: #ffffff; stroke: #6b7280; stroke-width: 3; stroke-dasharray: 6 8; opacity: 0.45; rx: 4; }
+      .start { fill: #ffffff; stroke: #2563eb; stroke-width: 4; stroke-dasharray: 8 6; rx: 4; }
+      .complete { fill: none; stroke: #16a34a; stroke-width: 4; stroke-dasharray: 10 6; rx: 8; }
+      .gen { stroke: #1f2937; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .constraint { stroke: #4b5563; stroke-width: 2.5; stroke-dasharray: 7 6; fill: none; marker-end: url(#dashArrow); }
+      .legend { fill: #374151; font: 500 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    </style>
+  </defs>
+
+  <rect width="900" height="540" fill="#ffffff"/>
+
+  <line class="axis" x1="150" y1="435" x2="835" y2="435"/>
+  <line class="axis" x1="150" y1="435" x2="150" y2="62"/>
+  <text class="axis-label" x="465" y="492" text-anchor="middle">Decoding time step</text>
+  <text class="axis-label" transform="translate(58 262) rotate(-90)" text-anchor="middle">Constraint coverage</text>
+
+  <text class="tick-label" x="126" y="394" text-anchor="middle">0</text>
+  <text class="tick-label" x="126" y="304" text-anchor="middle">1</text>
+  <text class="tick-label" x="126" y="214" text-anchor="middle">2</text>
+  <text class="tick-label" x="126" y="124" text-anchor="middle">3</text>
+
+  <text class="tick-label" x="206" y="462" text-anchor="middle">t=0</text>
+  <text class="tick-label" x="326" y="462" text-anchor="middle">t=1</text>
+  <text class="tick-label" x="446" y="462" text-anchor="middle">t=2</text>
+  <text class="tick-label" x="566" y="462" text-anchor="middle">t=3</text>
+  <text class="tick-label" x="686" y="462" text-anchor="middle">t=4</text>
+  <text class="tick-label" x="806" y="462" text-anchor="middle">t=5</text>
+
+  <rect class="complete" x="535" y="70" width="300" height="86"/>
+
+  <rect class="inactive" x="180" y="90" width="52" height="52"/>
+  <rect class="inactive" x="300" y="90" width="52" height="52"/>
+  <rect class="inactive" x="420" y="90" width="52" height="52"/>
+  <rect class="box" x="540" y="90" width="52" height="52"/>
+  <rect class="box" x="660" y="90" width="52" height="52"/>
+  <rect class="box" x="780" y="90" width="52" height="52"/>
+
+  <rect class="inactive" x="180" y="180" width="52" height="52"/>
+  <rect class="inactive" x="300" y="180" width="52" height="52"/>
+  <rect class="box" x="420" y="180" width="52" height="52"/>
+  <rect class="box" x="540" y="180" width="52" height="52"/>
+  <rect class="box" x="660" y="180" width="52" height="52"/>
+  <rect class="inactive" x="780" y="180" width="52" height="52"/>
+
+  <rect class="inactive" x="180" y="270" width="52" height="52"/>
+  <rect class="box" x="300" y="270" width="52" height="52"/>
+  <rect class="box" x="420" y="270" width="52" height="52"/>
+  <rect class="box" x="540" y="270" width="52" height="52"/>
+  <rect class="inactive" x="660" y="270" width="52" height="52"/>
+  <rect class="inactive" x="780" y="270" width="52" height="52"/>
+
+  <rect class="start" x="180" y="360" width="52" height="52"/>
+  <rect class="box" x="300" y="360" width="52" height="52"/>
+  <rect class="box" x="420" y="360" width="52" height="52"/>
+  <rect class="box" x="540" y="360" width="52" height="52"/>
+  <rect class="inactive" x="660" y="360" width="52" height="52"/>
+  <rect class="inactive" x="780" y="360" width="52" height="52"/>
+
+  <path class="gen" d="M232 386 H292"/>
+  <path class="gen" d="M352 386 H412"/>
+  <path class="gen" d="M472 386 H532"/>
+
+  <path class="gen" d="M352 296 H412"/>
+  <path class="gen" d="M472 296 H532"/>
+  <path class="gen" d="M592 296 H652"/>
+
+  <path class="gen" d="M472 206 H532"/>
+  <path class="gen" d="M592 206 H652"/>
+
+  <path class="gen" d="M592 116 H652"/>
+  <path class="gen" d="M712 116 H772"/>
+
+  <path class="constraint" d="M229 358 L300 314"/>
+  <path class="constraint" d="M349 358 L420 314"/>
+  <path class="constraint" d="M349 268 L420 224"/>
+  <path class="constraint" d="M469 268 L540 224"/>
+  <path class="constraint" d="M469 178 L540 134"/>
+  <path class="constraint" d="M589 178 L660 134"/>
+
+  <line x1="612" y1="498" x2="672" y2="498" class="gen"/>
+  <text class="legend" x="686" y="503">generate next token</text>
+  <line x1="612" y1="520" x2="672" y2="520" class="constraint"/>
+  <text class="legend" x="686" y="525">start or continue constraint</text>
+</svg>
