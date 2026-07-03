@@ -1,6 +1,6 @@
 # Nothing Lost in Translation
 
-**Lexically-constrained English→Russian machine translation, built by taking the decoder apart.** This project re-implements Hugging Face's beam search from scratch against the model's raw forward pass, proves the hand-written decoder matches the library on BLEU, and then extends it to do something `.generate()` cannot: **guarantee** that user-specified phrases appear in the translation (or are kept out of it) — with translation quality *rising*, not falling, as constraints are added.
+**Lexically-constrained English→Russian machine translation, built by taking the decoder apart.** This project re-implements the beam search mechanism commonly used in Hugging Face's `.generate()` by reconstructing decoding directly from the model's raw forward pass. It verifies that the hand-written decoder matches the library implementation on BLEU, then extends it to do something `.generate()` cannot: **guarantee** that user-specified phrases appear in the translation (or are kept out of it) — with translation quality *rising*, not falling, as constraints are added.
 
 <p align="left">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white">
@@ -27,17 +27,30 @@ First 100 sentences of the WMT16 EN→RU validation split, beam width 4, scored 
 
 In every constrained run, **100% of forced phrases actually appear in the output** — verified at the token-ID level and in the detokenized text. Grid Beam Search gains **+15 BLEU** over the baseline using only information a real user could supply.
 
-## Try the demo
+## Try it yourself
+
+Two ways in, depending on how far you want to go — a zero-setup demo, or the full research notebook that reproduces every number below.
+
+### The interactive demo — no setup
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/anupreetsingh/Nothing-Lost-in-Translation/blob/main/DEMO.ipynb)
 
 Type an English sentence, pick Russian phrases that **must** appear (or must **not**), and watch the constrained decoder build a fluent translation around your requirements. That is the whole project in one interactive cell: translation as a *controllable* process instead of a black box.
 
-[DEMO.ipynb](DEMO.ipynb) is a self-contained, three-cell playground built on the same Grid Beam Search decoder as the research notebook — no local setup needed:
+[DEMO.ipynb](DEMO.ipynb) is a self-contained, three-cell playground built on the same Grid Beam Search decoder as the research notebook — open the Colab link and run the cells, nothing to install.
 
-1. **Setup** — run once; downloads the ~300 MB MarianMT model (about a minute on a Colab T4).
-2. **Input** — your English sentence, required Russian phrases (`CONSTRAINTS`), and blocked phrases (`NEGATIVE_CONSTRAINTS`). Ready-made examples cover medical, legal, and technical terminology, named entities, brand consistency, and content sanitization — see [why these matter](#why-lexical-constraints-matter-in-practice).
-3. **Translate** — prints the constrained translation with a per-constraint check: `Present` / `OK` when a requirement or ban was honored. Subsequent translations take ~1–2 seconds.
+### The full research notebook — reproduce the results
+
+[Final Research Draft.ipynb](Final%20Research%20Draft.ipynb) rebuilds the decoder from the model's raw forward pass and runs every experiment behind the tables below. Open it locally (create a virtual environment and select it as the kernel — Section 0 of the notebook walks through it) or upload it to Colab, then run the cells top to bottom: the first cell installs every dependency, the device (CUDA / Apple Silicon MPS / CPU) is auto-detected, and the WMT16 data downloads itself. Nothing needs editing to run.
+
+The experiment's scale and scope can be shifted in one **Run configuration** cell subsection under Section-3 of the notebook by manipulating the following values:
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `N_EVAL` | 100 | Evaluation sentences; raise for more stable BLEU, lower for speed |
+| `CYCLES` | 4 | Pick–revise rounds (one new constraint per sentence per round) |
+| `NUM_BEAMS` | 4 | Beam width; Hokamp & Liu used 10 |
+| `MINE_MODE` | `"word"` | Mining granularity: whitespace words or raw token IDs |
 
 ## Repository layout
 
@@ -72,7 +85,6 @@ Nothing-Lost-in-Translation/
   - [8. Negative constraints: keeping phrases out](#8-negative-constraints-keeping-phrases-out)
 - [Results in detail](#results-in-detail)
 - [Why lexical constraints matter in practice](#why-lexical-constraints-matter-in-practice)
-- [Running the research notebook](#running-the-research-notebook)
 - [Tech stack](#tech-stack)
 - [Limitations and future work](#limitations-and-future-work)
 - [Author and references](#author-and-references)
@@ -81,9 +93,26 @@ Nothing-Lost-in-Translation/
 
 ## The problem
 
-A translation model's decoder is usually a black box: you call `.generate()` and trust whatever beam search hands back. Most of the time that is fine. But real translation work often comes with *hard requirements* — a medical term that must not be paraphrased, a product name that must stay in its official form, a glossary the output must comply with, a word the style guide bans. Plain beam search offers no lever for any of this: an output can be fluent and high-probability while still dropping the one phrase that mattered.
+A translation model's decoder is usually a black box: you call `.generate()` and trust whatever beam search hands back. Most of the time that is fine. But real work often comes with *hard requirements* — a medical term that must not be paraphrased, a product name that must stay in its official form, a glossary the output must comply with, a word the style guide bans. Plain beam search offers no lever for any of this: an output can be fluent and high-probability while still dropping the one phrase that mattered.
 
-This project builds that lever. The path runs from the model's raw forward pass, through a from-scratch beam search verified against the library, to two constrained decoders — one that cheats to establish the ceiling, and one, Grid Beam Search ([Hokamp & Liu, 2017](https://arxiv.org/abs/1704.07138)), that could actually ship.
+This project builds that lever — and because it lives at the decoding layer, *below* the model, it is more general than the translation task used to demonstrate it. The decoder manipulates the search over tokens, not the weights that produce them; it reasons only about token IDs and per-step scores from a forward pass. So nothing about it is specific to Russian, or even to translation. If phrase inclusion can be **guaranteed** here, the same machinery enforces constraints in any language pair, and more broadly imposes lexical constraints on *any* autoregressive generation — summarization, structured or schema-bound output, controlled text — wherever the result must provably contain, or exclude, certain spans. EN→RU is the concrete testbed; **constraint satisfaction over a decoder** is the general method.
+
+The path runs from the model's raw forward pass, through a from-scratch beam search verified against the library, to two constrained decoders — one that cheats to establish the ceiling, and one, Grid Beam Search that could actually ship.
+
+## Why lexical constraints matter in practice
+
+Constrained decoding turns translation from "hope the model preserves it" into "the decoder must include it." Concrete use cases include:
+
+- **Domain-specific jargon (legal, medical, technical)** — preserve terms whose mistranslation changes meaning or creates safety issues.
+    Translating *"The patient presented to the emergency department with bilateral lower extremity edema and dyspnea…"*, requiring «двусторонний отек нижних конечностей» (bilateral lower extremity edema) and «одышка» (dyspnea) holds the clinical terms in place, where an unconstrained model tends to soften them to laymen terms slike «отек обеих ног» (swelling of both legs) or «затрудненное дыхание» (difficulty breathing) for purpose of fluency.
+- **Named entities** — pin people and places to one standard transliteration.
+    Translating *"Jacinda Ardern delivered a speech to some officials from Wellington,"* requiring «Джасинда Ардерн» (Jacinda Ardern) and «Веллингтон» (Wellington) fixes the name and city to one spelling instead of variants like «Ясинда Ардерн» (Yasinda Ardern, wrong first letter) or «Уэллингтон» (Wellington, variant spelling).
+- **Brand and product consistency** — keep brand and product names in their official Latin-script form.
+    Translating *"Apple introduced new spatial computing features for Vision Pro…"*, requiring «Apple» (Apple) and «Vision Pro» (Vision Pro) blocks a Cyrillic transliteration like «Эппл» (Apple) / «Вижн Про» (Vision Pro) — or the literal «Яблоко» (apple, the fruit).
+- **Glossary compliance** — force the approved glossary term when the source word has several plausible translations.
+    Translating *"The merchant received a chargeback after the customer disputed the card transaction,"* requiring the fintech term «чарджбэк» (chargeback) stops the model reaching for a generic paraphrase like «возврат платежа» (payment refund).
+- **Content sanitization** — the negative direction: keep harsh or unwanted wording out of the output.
+    Translating *"The customer called the delayed rollout a stupid mess and said the support team was useless,"* blocking «тупой» (stupid) and «бесполезный» (useless) makes the decoder fall back on milder wording such as «неудачный» (unsuccessful) or «неэффективный» (ineffective).
 
 ## Background: from greedy decoding to beam search
 
@@ -121,8 +150,8 @@ This silently broke the project's first constrained-decoding implementation: ref
 
 1. **Fan out the input.** Each source sentence's `input_ids` and `attention_mask` are expanded with `repeat_interleave(num_beams)`, one row per hypothesis, all attached to the same source. `decoder_input_ids` starts as one `decoder_start_token_id` per hypothesis.
 2. **Seed the beams.** A forward pass returns logits — raw scores over the vocabulary for the next position. `log_softmax` converts them to log-probabilities that can be summed across steps without underflow. Since every hypothesis starts identically, the first expansion simply takes the sentence's top `num_beams` tokens as the initial beam.
-3. **Expand.** At each later step, every surviving hypothesis proposes its top `num_beams` continuations, each continuation's log-probability added to the hypothesis's running score — `num_beams × num_beams` candidates per source sentence.
-4. **Select and bookkeep.** Candidates compete only against candidates from the same source sentence; the best `num_beams` survive, each mapped back to the hypothesis it extends. Finished beams are frozen — extended with pad at zero cost — so nothing is generated past EOS.
+3. **Expand.** At each later step, every one of the surviving `num_beams` hypotheses proposes its top `num_beams` continuations (next tokens), chosen from among its own `|V|` candidates by each continuation's log-probability alone — a ranking local to that hypothesis. That puts a `num_beams × num_beams` pool of candidates on the table per source sentence.
+4. **Select and bookkeep.** From that pool, candidates compete only against candidates from the same source sentence, now ranked by *running score + continuation log-probability*; the best `num_beams` survive into the next step, each mapped back to the hypothesis it extends. Finished beams are frozen — extended with pad at zero cost — so nothing is generated past EOS.
 5. **Terminate.** The loop stops at `max_length`, or earlier with `early_stopping` when the best new token is EOS. The top beam per sentence is decoded back to text.
 
 (Model anatomy worth knowing when reading the code: for the Helsinki model `eos = 0`, `unk = 1`, and `pad = decoder_start = 62517` — the pad ID doubles as the decoder's start token.)
@@ -143,25 +172,47 @@ Mining returns each phrase's token IDs *and* its position in the reference. Only
 
 ### 6. Track A — Stamping, the oracle ceiling
 
-`stamping_beam_search` is the scratch decoder with a constraint schedule grafted on: constraints enter as a queue sorted by reference position → a constraint becomes due once decoding reaches that position and emits one token per step → each forced token is still scored under the model, keeping beam scores comparable → EOS stays masked while anything is pending, so a sentence cannot end before its constraints are placed.
+`stamping_beam_search` is the scratch decoder of [section 4](#4-rebuilding-beam-search-from-scratch) with a constraint *schedule* grafted onto its loop — nothing about scoring, beam competition, or frozen finished beams changes, so whatever the BLEU curve does is attributable to the constraints alone. The flow of a decode:
+
+1. **Queue the schedule.** The constraints enter as a queue sorted by their reference position — the second thing mining returned in [section 5](#5-mining-constraints-the-pickrevise-loop), and the piece of information only this track consumes.
+2. **Decode normally until a constraint is due.** Each step runs the usual loop — forward pass, `log_softmax`, expand, select — until the step counter reaches the position of the first pending constraint (`step >= position`).
+3. **Stamp one token per step.** A due constraint takes over the step: its next token is appended to *every* beam outright, bypassing the top-`num_beams` competition entirely. Emitting one token per step (rather than a whole phrase at once) means constraints with colliding positions queue up behind each other instead of overwriting each other.
+4. **Score the forced token anyway.** The stamped token was still assigned a log-probability in the forward pass, and that value joins each beam's running sum — so beams remain comparable with each other, and with the free-running steps around them, on the same scale. (Grid Beam Search applies the same forced-but-still-scored principle to its **start**/**continue** moves.)
+5. **Guard the end.** While any constraint is pending, the EOS token's log-probability is masked to `−inf` in every free expansion — a sentence cannot end before its constraints are placed. Once the queue is empty, the normal termination rules take over (`max_length`, or `early_stopping` when the best beam finishes), and the top beam per sentence is decoded back to text.
 
 Its BLEU climbs to 81.70 in four cycles — and that is precisely its flaw. The placement position is **oracle information**: it exists only because the reference translation is sitting there to copy from. In every real use — glossary enforcement, protecting a product name, interactive post-editing — the user knows *which* phrase must appear, never *where* it belongs in a sentence that has not been generated yet. Stamping is kept as a learning exercise and as the upper bound: the score you reach when placement comes for free.
 
 ### 7. Track B — Grid Beam Search, the deployable method
 
-`grid_beam_search` implements Hokamp & Liu (2017). The search lives on a grid indexed by *(timestep, coverage)*, where coverage is the number of constraint tokens emitted so far:
+`grid_beam_search` implements [Hokamp & Liu (2017)](https://arxiv.org/abs/1704.07138). The search lives on a grid indexed by *(timestep, coverage)*: the horizontal axis is the normal decoding timeline, and the vertical axis is constraint progress — coverage being the number of constraint tokens emitted so far.
 
 ![Grid Beam Search search graph](assets/grid-beam-search.svg)
 
-The horizontal axis is the normal decoding timeline; the vertical axis is constraint progress. Each cell holds its own beam of up to `k` hypotheses that share a timestep and a coverage level. The flow of one step: all live hypotheses across every coverage level are batched through the decoder in **one forward pass** (the encoder ran exactly once up front; its states are re-used every step) → every hypothesis expands three ways, each scored by the model —
+A **cell** `(t, c)` is one search state: *t tokens generated, c of them constraint tokens*. Each cell holds its own beam of up to `num_beams` hypotheses. They share the timestep and the coverage count but differ in everything else — their actual tokens, their scores, even *which* constraints they have covered. Being in the same cell, again, means only sharing a coverage *count*: each hypothesis carries its own record of the specific constraints it has covered and, if it is mid-phrase, which constraint is currently open.
 
-- **generate** a free token from the vocabulary (a horizontal move: same coverage),
-- **start** the first token of a not-yet-covered constraint (a diagonal move: coverage + 1),
-- **continue** the currently open constraint (diagonal: coverage + 1)
+The flow of a decode:
 
-— → successors are re-bucketed by coverage, and the top-`num_beams` *distinct* hypotheses per level survive.
+1. **Start in the corner.** The encoder runs exactly once; its states are re-used at every step. The search begins with a single hypothesis in cell `(0, 0)` — nothing generated, nothing covered.
 
-The bucketing is the insight: hypotheses are pruned by score only *within their own coverage level*, never against hypotheses that have made different constraint progress. That is what protects an improbable-but-required phrase from being pruned mid-emission — the exact failure plain beam search cannot avoid. Two guards keep the search honest: a hypothesis is dropped once it can no longer cover the remaining constraint tokens in the steps left, and EOS is masked until coverage is complete. The winner is the best length-normalized finished hypothesis that has covered **all** constraints.
+2. **Expand every hypothesis.** At each time step (column), all live hypotheses across every coverage level (row) of that time step are batched through the decoder in **one forward pass**. The successors a hypothesis produces are decided by its state — in Hokamp & Liu's terminology, a hypothesis can be **open**, when it is not in the middle of a multi-token constraint, or **closed**, when it is mid-way through emitting one:
+   - **Open hypotheses** take **generate** and **start** together, fanning out into `num_beams + U` successors, where `U` is the number of uncovered constraints:
+     - **generate** — top `num_beams` continuations (next tokens), chosen from among its own `|V|` candidates; results in a *horizontal* move to `(t+1, c)`. Skipped in one edge case: when the remaining steps exactly match the remaining constraint tokens, there is no slack left for free tokens.
+     - **start** — the first token of an uncovered constraint, one successor per such constraint; results in a *diagonal* move to `(t+1, c+1)`.
+   - **Closed hypotheses** take exactly one move:
+     - **continue** — the next token of the constraint currently mid-emission; also a *diagonal* move to `(t+1, c+1)`. A closed hypothesis can only continue its phrase — no free tokens, no starting another constraint — until the phrase's last token re-opens it.
+
+    Remember that a forced token (emitted by a **start** or **continue** move) is exempt from the top-`num_beams` cutoff — it reaches the diagonal cell no matter how the model ranked it — but not from scoring: the log-probability it was assigned in the forward pass still joins the hypothesis's running sum.
+
+3. **Re-bucket and prune per cell.** All successors are pooled and re-bucketed by their *new* coverage count into the appropriate cell. A cell at `(t+1, c)` therefore receives arrivals from two directions at once: *horizontal* ones from `(t, c)` (free token from generate move) and *diagonal* ones from `(t, c−1)` (forced token from start or continue move). The hypotheses in each cell then compete on total score — the parent's running score plus the new token's log-probability — and the top `num_beams` *distinct* hypotheses survive for that cell. This **per-cell** pruning is what keeps the contest fair: every hypothesis is judged only against others that have paid for the same number of constraint tokens. A hypothesis mid-way through an improbable required phrase never faces the fluent, free-running hypotheses at lower coverage — the exact competition that would kill it in plain beam search.
+4. **Guard the search.** Two important rules make sure a sentence cannot end while any constraint is unplaced.
+
+    First, EOS is masked for every hypothesis below full coverage of constraints — finishing early is simply not a legal move. Masking means that in the hypothesis's generate expansion, the EOS token's log-probability is set to `−inf` before the top-`num_beams` cut, so it can never be selected, however much the model wants to end the sentence.
+
+    Second, a hypothesis is dropped the moment its remaining steps are less than the remaining constraint tokens.
+
+5. **Finish at the top row.** Only in the top row, where every constraint is covered, is EOS unmasked and hypotheses are finally allowed to end. They do not all end at once: whenever a top-row hypothesis emits EOS, it leaves the grid for a *completed pool*, its score frozen, while its siblings keep decoding and may finish later at other lengths in successive time steps.
+
+    When the search ends, that pool is ranked once, globally — the only comparison in the algorithm that crosses timesteps and lengths, which is why length normalization applies exactly here: each hypothesis's score is divided by its length, turning the sum into an average log-probability per token, so a shorter sentence is not rewarded merely for collecting fewer negative terms (log-probabilities). The best normalized hypothesis is the returned translation: a complete sentence that provably covers every constraint, with placement chosen by the model's own scores rather than by any oracle. (And if nothing ever completes — the step budget runs out, or the constraints prove unsatisfiable — the decoder returns the best partial hypothesis from the highest coverage row rather than failing.)
 
 The cost: with `c` constraint-coverage states, roughly `T × c × k × |V|` expansions instead of beam search's `T × k × |V|` — more expensive, still nowhere near exhaustive search's `|V|^T`. The property that matters: constraints enter as **bare phrases** — no positions anywhere in the interface. Exactly the information a real user could supply.
 
@@ -169,9 +220,16 @@ The cost: with `c` constraint-coverage states, roughly `T × c × k × |V|` expa
 
 The mirror question arrives immediately in any real use: how do we keep a phrase *out*? Profanity that should give way to a euphemism, a competitor's name, an anglicism the style guide forbids.
 
-The same decoder accepts `negative_constraints`, and the mechanism needs no new grid dimension — the coverage grid exists to *protect* improbable-but-required progress, whereas a ban only removes options. So it is masking inside the existing loop: a banned phrase goes through `encode_target()` into token-ID sequences → at every **generate** expansion, any token that would *complete* a banned sequence given the hypothesis's current tail is masked to `-inf` before the top-k → the probability mass falls to the runner-up, which for a harsh word is usually a milder synonym → forced positive tokens are guarded the same way, so a required phrase can never smuggle a banned one in.
+The same `grid_beam_search` accepts a `negative_constraints` argument, and the mechanism needs **no new grid dimension**. The coverage grid of [section 7](#7-track-b--grid-beam-search-the-deployable-method) exists to *protect* improbable-but-required progress from beam pruning; a ban protects nothing — it only removes options — so it lives entirely inside the existing loop as one more masking rule, at negligible cost. The flow of a ban:
 
-Negative constraints sit outside the BLEU experiments by design: pick–revise mines phrases to *require* from the reference, and a reference offers nothing to *ban*. Section 8 of the notebook demonstrates them the way they would actually be used — ban the anglicism «Мистер», let the decoder fall back to its next-best honorific, optionally pair the ban with a positive constraint («Господин Моди») to *direct* the replacement instead of trusting the model's ranking, and assert at the token level that the banned sequence is truly absent. Two honest caveats: the match is exact, so each surface form (case, inflection) needs its own blocklist entry; and banning selects *against* a phrase, never *for* its replacement — composition with a positive constraint is the fix.
+1. **Encode the blocklist.** Each banned phrase goes through `encode_target()` (as always — [section 3](#3-the-tokenizer-detail-that-decides-everything)) into a banned token-ID sequence. Matching is exact at the token level, so each surface form to block — case, inflection, capitalization — needs its own entry.
+2. **Watch every hypothesis's tail.** At each **generate** expansion, the decoder computes which next tokens would *complete* a banned sequence given that hypothesis's current tail: a token is blocked when the hypothesis's most recent tokens already spell out all of a banned sequence except its last token, and this token is that last piece. (A single-token ban has an empty prefix, so it is blocked everywhere.)
+3. **Mask before the cut.** Each blocked token's log-probability is set to `−inf` before the top-`num_beams` selection — the same mechanism section 7 uses to mask EOS — so it can never be chosen. The probability mass the model gave the banned continuation falls to its runner-up, and because the top of the distribution at that point is dominated by alternative wordings of the same source meaning, the runner-up for a harsh word is usually a milder synonym.
+4. **Guard the forced moves too.** A **start** or **continue** move bypasses the top-k, so it gets its own check: if the forced token would complete a banned sequence, that successor is dropped rather than emitted. A required phrase can never smuggle a banned one into the output.
+
+Negative constraints sit outside the BLEU experiments by design: pick–revise mines phrases to *require* from the reference, and a reference offers nothing to *ban* — banning reference phrases would push BLEU down by construction, measuring nothing. Section 8 of the notebook instead demonstrates them the way they would actually be used — ban the anglicism «Мистер», let the decoder fall back to its next-best honorific, optionally pair the ban with a positive constraint («Господин Моди») to *direct* the replacement instead of trusting the model's ranking, and assert at the token level that the banned sequence is truly absent from the output.
+
+Three honest caveats: the match is exact, so each surface form of a banned word needs its own blocklist entry; banning selects *against* a phrase, never *for* its replacement — if the runner-up is also unwanted, the fix is composing the ban with a positive constraint, as above; and a positive constraint that *contains* a banned sequence makes the two unsatisfiable together, leaving the search only its fallback hypothesis — don't require what you ban.
 
 ## Results in detail
 
@@ -194,35 +252,7 @@ How to read the two curves:
 - **Stamping's curve is a ceiling, not a victory.** It consumes oracle positions copied from the reference, so its BLEU measures how much reference information was injected — not quality any user could obtain.
 - **GBS's curve is the honest one.** It rises from 25.45 to 40.59 (**+15 BLEU**) using only the phrases themselves, while the model keeps their placement fluent. The gap between the curves is the price of not cheating.
 
-A constraint visibly landing (cycle 1, GBS). Forcing «Господин Моди находится» ("Mr. Modi is [currently]") makes the decoder restructure the whole sentence around the required honorific:
-
-> **before:** Мистер Моди в пятидневной поездке в Японию для укрепления экономических связей…
-> **after:** Господин Моди находится в пятидневной поездке в Японию, чтобы укрепить экономические связи…
-
 **Cost.** Stamping runs at roughly the speed of unconstrained search (~0.4 s/sentence on a Colab T4). GBS grows with accumulated constraints — from ~1.9 s/sentence in cycle 1 to ~5.2 s in cycle 4 — because it maintains a beam per coverage level. GBS outputs also lengthen across cycles (mean ~32 → ~49 tokens), partly legitimate recovery of reference content, partly verbosity worth auditing.
-
-## Why lexical constraints matter in practice
-
-Constrained decoding turns translation from "hope the model preserves it" into "the decoder must include it." Concrete uses, each demonstrated in the [demo notebook](DEMO.ipynb):
-
-- **Domain-specific jargon (legal, medical, technical)** — preserve terms whose mistranslation changes meaning or creates safety issues. Translating *"The patient presented with bilateral lower extremity edema and dyspnea…"*, requiring «двусторонний отек нижних конечностей» and «одышка» keeps the clinical terms where an unconstrained model may simplify them to "swelling of both legs" and "difficulty breathing".
-- **Named entities** — pin people and places to one standard transliteration. Requiring «Джасинда Ардерн» and «Веллингтон» prevents variant spellings like «Ясинда Ардерн» or «Уэллингтон».
-- **Brand and product consistency** — requiring "Apple" and "Vision Pro" keeps brand names in their official Latin-script form instead of transliterations («Эппл» / «Вижн Про») — or the literal «Яблоко», the fruit.
-- **Glossary compliance** — requiring the approved fintech term «чарджбэк» (chargeback) stops the model substituting a generic paraphrase like «возврат платежа» (payment refund).
-- **Content sanitization** — the negative direction: blocking «тупой» (stupid) and «бесполезный» (useless) makes the decoder fall back on milder wording such as «неудачный» or «неэффективный».
-
-## Running the research notebook
-
-The demo needs nothing but the [Colab link](#try-the-demo). To reproduce the experiments, open [Final Research Draft.ipynb](Final%20Research%20Draft.ipynb) locally (create a virtual environment and select it as the kernel — Section 0 of the notebook walks through it) or upload it to Colab, then run the cells top to bottom: the first cell installs every dependency, the device (CUDA / Apple Silicon MPS / CPU) is auto-detected, and the WMT16 data downloads itself. Nothing needs editing to run.
-
-The experiment's scale is set by one configuration cell near the top:
-
-| Knob | Default | Effect |
-|------|---------|--------|
-| `N_EVAL` | 100 | Evaluation sentences; raise for more stable BLEU, lower for speed |
-| `CYCLES` | 4 | Pick–revise rounds (one new constraint per sentence per round) |
-| `NUM_BEAMS` | 4 | Beam width; Hokamp & Liu used 10 |
-| `MINE_MODE` | `"word"` | Mining granularity: whitespace words or raw token IDs |
 
 ## Tech stack
 
@@ -240,9 +270,8 @@ The experiment's scale is set by one configuration cell near the top:
 - **Constraints are mined from gold references** — the research loop answers "does constrained decoding work?", not a deployment scenario. [DEMO.ipynb](DEMO.ipynb) closes part of the gap by taking user-supplied phrases; a glossary-driven pipeline is the natural next step.
 - **GBS is slow, and slows as constraints accumulate** — ~1.9 s/sentence with one constraint rising to ~5.2 s with four. Batching multiple sentences through GBS at once is unimplemented.
 - **Outputs lengthen under GBS** — mean length grows ~32 → ~49 tokens across four cycles; some is legitimate recovery of reference content, some may be verbosity worth auditing.
-- **Modest evaluation scale** — 100 sentences, 4 beams (the paper used 10); both are single-knob changes (`N_EVAL`, `NUM_BEAMS`) trading runtime for fidelity.
+- **Modest evaluation scale** — 100 sentences, 4 beams (the paper used 10), and only the EN→RU pair is measured; the decoder is language- and task-agnostic (see [The problem](#the-problem)), but that generality is argued, not yet benchmarked across pairs. Scale and beam width are single-knob changes (`N_EVAL`, `NUM_BEAMS`) trading runtime for fidelity.
 - **Exact-match negative constraints** — each surface form (case, inflection) of a banned word needs its own entry; production use would expand lemmas or add a detokenized substring check.
-- **Single language pair** — only EN→RU is evaluated; the decoders themselves are language-agnostic.
 
 ## Author and references
 
